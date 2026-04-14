@@ -1,16 +1,27 @@
+import anyio
+from contextlib import asynccontextmanager
+from starlette.concurrency import run_in_threadpool
+
 from fastapi import FastAPI
 from user.router import router
 
-app = FastAPI()
+# 쓰레드풀 크기 조정
+@asynccontextmanager
+async def lifespan(_):
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = 200
+    yield
+
+app = FastAPI(lifespan=lifespan)
 app.include_router(router)
 
+def aws_sync():
+    # AWS S3에서 파일 다운로드
+    return
 
-# @ -> Python 데코레이터: 파이썬 함수에 추가적인 기능을 부여하는 문법
-# @app.get("/", status_code=200)
-# def root_handler():
-#     # return {"message": "Hello World"}
-#     return {"ping": "pong"}
-
-# @app.get("/hello",  status_code=status.HTTP_200_OK)
-# def hello_handler():
-#     return {"message": "Hello from FastAPI!"}
+# 동기함수를 비동기로 실행하는 핸들러
+@app.get("/async")
+async def async_handler():
+    # AWS S3에서 파일 다운로드
+    await run_in_threadpool(aws_sync)
+    return {"message": "Async handler completed"}

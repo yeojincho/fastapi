@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Path, Query, status, HTTPException, Depends
 from sqlalchemy import select, delete
+
 from database.connection import get_session
+from database.connection_async import get_async_session
 from user.request import UserCreateRequest, UserUpdateRequest
 from user.response import UserResponse
 from user.models import User
@@ -21,11 +23,11 @@ users = [
             summary="전체 회원 목록 조회 API",
             response_model=list[UserResponse]
             )
-def get_users_handler(
-    session = Depends(get_session) # Depends: FastAPI에서 의존성(get_session)을 자동 실행/주입/정리
+async def get_users_handler(
+    session = Depends(get_async_session) # Depends: FastAPI에서 의존성(get_session)을 자동 실행/주입/정리
 ):
     statement = select(User) # SELECT * FROM USER;
-    result = session.execute(statement)
+    result = await session.execute(statement)
     users = result.scalars().all()  # scalars(): 첫번째 열의 데이터만, all(): 리스트변환
     return users
 
@@ -35,10 +37,10 @@ def get_users_handler(
         summary="회원 정보 검색 API",
         response_model=list[UserResponse],
         )
-def search_user_handler(
+async def search_user_handler(
     name: str | None = Query(None), 
     job:str | None = Query(None),
-    session = Depends(get_session),
+    session = Depends(get_async_session),
     ):
     if not name and not job:
         raise HTTPException(
@@ -51,7 +53,7 @@ def search_user_handler(
     if job:
         stmt = stmt.where(User.job == job) # name 거쳐온거면 where 2번
     
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     users = result.scalars().all()
     return users
 
@@ -63,11 +65,11 @@ def search_user_handler(
         response_model=UserResponse
         )
 # Path:경로에서 가져옴, ...: 필수값, ge: 이상(Greater than or Equal)
-def get_user_handler(user_id: int = Path(..., ge=1, le=9999), 
-                     session=Depends(get_session)
+async def get_user_handler(user_id: int = Path(..., ge=1, le=9999), 
+                     session=Depends(get_async_session)
                      ):
     stmt = select(User).where(User.id == user_id)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     user = result.scalar() # scalar(): 1개 | 0개
 
     if not user: 
@@ -84,12 +86,14 @@ def get_user_handler(user_id: int = Path(..., ge=1, le=9999),
         response_model=UserResponse, 
         status_code=status.HTTP_201_CREATED
         )
-def create_user_handler(body: UserCreateRequest, 
-                        session = Depends(get_session)):
+async def create_user_handler(body: UserCreateRequest, 
+                        session = Depends(get_async_session)):
     new_user = User(name=body.name, job=body.job)
     session.add(new_user)
-    session.commit() # DB에 반영(INSERT)
-    session.refresh(new_user) # 반영된 행 읽어오기(SELECT)
+    print("커밋 전:", new_user.id)
+    await session.commit() # DB에 반영(INSERT)
+    await session.refresh(new_user) # 반영된 행 읽어오기(SELECT)
+    print("커밋 후:", new_user.id)
     return new_user
 
     # new_user = {"id":len(users)+1, "name":body.name, "jop":body.job}
@@ -101,13 +105,13 @@ def create_user_handler(body: UserCreateRequest,
         summary="회원 정보 수정 API",
         response_model=UserResponse
         )
-def update_user_handler(
+async def update_user_handler(
     user_id: int, 
     body: UserUpdateRequest,
     session = Depends(get_session)
     ):
     stmt = select(User).where(User.id == user_id)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     user = result.scalar() # scalar(): 객체 하나만
 
     if not user:
@@ -116,8 +120,7 @@ def update_user_handler(
             detail="회원을 찾을 수 없습니다."
         )
     user.job = body.job # user는 세션에서 가져온 것이므로 session.add(user) 하지 않아도 됨
-    session.commit() # UPDATE 쿼리로 DB 반영(UPDATE user SET job=? WHERE user.id = ?)
-    session.refresh(user)
+    await session.commit() # UPDATE 쿼리로 DB 반영(UPDATE user SET job=? WHERE user.id = ?)
     return user
 
 
@@ -126,13 +129,13 @@ def update_user_handler(
     summary="회원 삭제 API",
     status_code=status.HTTP_204_NO_CONTENT # 204_NO_CONTENT: 응답 메시지 반환 안되도록
     )
-def delete_user_handler(user_id: int,
-                        session = Depends(get_session)
+async def delete_user_handler(user_id: int,
+                        session = Depends(get_async_session)
                         ):
 # 1) 곧바로 삭제
     stmt = delete(User).where(User.id == user_id)
-    session.execute(stmt)
-    session.commit()
+    await session.execute(stmt) # DELETE FROM user WHERE user.id = ?
+    await session.commit() # DB 반영
 
 # 2) 조회 후 삭제(조회해보고 없으면 없다고 알려줄수있음)
 # with SessionFactory() as session:
